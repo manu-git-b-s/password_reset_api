@@ -1,21 +1,19 @@
 import User from "../models/user.schema.js";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { sendMail } from "../utils/sendMail.js";
 import { generateRandomString } from "../utils/randomString.js";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 export const registerUser = async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
-    if (!username || !email || !password) {
-      return res
-        .status(400)
-        .json({ message: "username,email and password fields are required" });
-    }
-
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({
+        status: false,
         message: `User with ${existingUser.email} mail id already exists`,
       });
     }
@@ -24,11 +22,16 @@ export const registerUser = async (req, res) => {
     const newUser = new User({ username, email, password: hashedPassword });
     await newUser.save();
 
-    res
-      .status(200)
-      .json({ message: "User Registered successfully", data: newUser });
+    res.status(201).json({
+      status: true,
+      message: "User Registered successfully",
+      data: newUser,
+    });
   } catch (error) {
-    res.status(500).json({ message: "Register failed Internal server error" });
+    res.status(500).json({
+      message: "Register failed Internal server error",
+      error: error.message,
+    });
   }
 };
 
@@ -36,38 +39,38 @@ export const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({ message: "email and password fields are required" });
+    const findUser = await User.findOne({ email });
+    if (!findUser) {
+      return res.status(400).json({ message: "User Not Found" });
     }
 
-    const user = await User.findOne({ email }, { _id: 0, email: 0 });
-    if (!user) {
-      return res.status(401).json({ message: "User Not Found" });
-    }
-
-    const passwordMatch = await bcrypt.compare(password, user.password);
+    const passwordMatch = await bcrypt.compare(password, findUser.password);
     if (!passwordMatch) {
       return res.status(401).json({ message: "Invalid password" });
     }
-
-    res.status(200).json({ message: "Login successfully", data: user });
+    res
+      .status(200)
+      .json({ status: true, message: "Login successfully", data: findUser });
   } catch (error) {
-    res.status(500).json({ message: "Login failed Internal server error" });
+    res.status(500).json({
+      message: "Login failed",
+      error: error.message,
+    });
   }
 };
 
 export const listAllUsers = async (req, res) => {
   try {
-    const allUsers = await User.find();
+    const allUsers = await User.find({}, { _id: 0, password: 0 });
 
     res.status(200).json({
       message: "All Users fetched successfully",
       data: allUsers,
     });
   } catch (error) {
-    res.status(500).json({ message: "Internal server error" });
+    res
+      .status(500)
+      .json({ message: "Internal server error", error: error.message });
   }
 };
 
@@ -81,17 +84,17 @@ export const forgotPassword = async (req, res) => {
       //Reset Link
       const resetLink = `${process.env.RESET_LINK}?token=${tokenString}&email=${mailId}`;
 
-      const message = `
-<p>Hello ${userExists.username},</p>
-    <p>You have requested to reset your password. Click the button below to reset it:</p>
-    <a href="${resetLink}">
-      <button style="padding: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
-        Reset Your Password
-      </button>
-    </a>
-`;
-
-      sendMail(req.body.email, message);
+      const message = `<p>Hello ${userExists.username},</p>
+          <p>
+            You have requested to reset your password. Click the button below to
+            reset it:
+          </p>
+          <a href="${resetLink}">
+            <button style="padding: 10px; background-color: #000; color: white; border: none; border-radius: 5px; cursor: pointer;">
+              Reset Your Password
+            </button>
+          </a>`;
+      await sendMail(req.body.email, message);
 
       //update the DB with Random string
       await User.updateOne(
@@ -101,7 +104,7 @@ export const forgotPassword = async (req, res) => {
 
       //Status send
       res.status(201).send({
-        message: "User is available",
+        message: "Reset Link send to your email",
       });
     } else {
       res
@@ -120,11 +123,11 @@ export const resetPassword = async (req, res) => {
   try {
     let user = await User.find({ email: req.body.email });
     if (user) {
-      const pass1 = req.body.pass1;
-      const pass2 = req.body.pass2;
-      const equalPassword = pass1 === pass2;
-      const hashedPassword = await bcrypt.hash(pass1, 10);
-      if (equalPassword && pass1 !== "" && pass2 !== "") {
+      const password = req.body.password;
+      const confirmPassword = req.body.confirmPassword;
+      const equalPassword = password === confirmPassword;
+      const hashedPassword = await bcrypt.hash(password, 10);
+      if (equalPassword && password !== "" && confirmPassword !== "") {
         await User.updateOne(
           { email: req.body.email },
           { password: hashedPassword }
@@ -133,13 +136,15 @@ export const resetPassword = async (req, res) => {
           { email: req.body.email },
           { $unset: { randomString: 1 } }
         );
-        res.status(200).send("Updated successfully");
+        res.status(200).json({ message: "Updated successfully" });
       } else {
-        res.status(400).send("Password and confirm password doesnt match");
+        res
+          .status(400)
+          .json({ message: "Password and confirm password doesnt match" });
       }
     }
   } catch (error) {
-    res.status(500).send({
+    res.status(500).json({
       message: "Internal Server Error",
       error: error.message,
     });

@@ -15,15 +15,15 @@ export const sendMail = async (mailReceiver, message) => {
     });
 
     // Email Content
-    const mailOptions = {
+    const mailDetails = {
       from: process.env.EMAIL_ID,
       to: mailReceiver,
       subject: "Password Reset",
-      text: message,
+      html: message,
     };
 
     // Send mail
-    const info = await transporter.sendMail(mailOptions);
+    const info = await transporter.sendMail(mailDetails);
     console.log("Email sent: " + info.response);
   } catch (error) {
     console.log("Error sending email:", error);
